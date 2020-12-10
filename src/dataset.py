@@ -1,6 +1,7 @@
 import json
 from torch.utils.data import Dataset, DataLoader
 
+
 class Intent_identification_dataset(Dataset):
     """
     Take the whole dataset and
@@ -17,12 +18,12 @@ class Intent_identification_dataset(Dataset):
     def __getitem__(self, idx):
         sample = self.dataset[idx]
         if self.transform:
-            sample=self.transform(sample)
+            sample = self.transform(sample)
         return sample
 
 
 if __name__ == '__main__':
-    with open('../benchmark/less_train.json')as json_file:
+    with open('../../benchmark/less_train.json')as json_file:
         data = json.load(json_file)
     dataset = Intent_identification_dataset(data)
     print(dataset[12])
