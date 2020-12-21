@@ -23,7 +23,7 @@ class Intent_identification_dataset(Dataset):
 
 
 if __name__ == '__main__':
-    with open('../../benchmark/less_train.json')as json_file:
+    with open('../benchmark/less_train.json')as json_file:
         data = json.load(json_file)
     dataset = Intent_identification_dataset(data)
     print(dataset[12])

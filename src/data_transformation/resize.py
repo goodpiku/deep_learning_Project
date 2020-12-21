@@ -1,7 +1,7 @@
 _PAD_ = 'AHANA'
 
 
-class Resize(object):
+class Resize:
     """Resizing the sample texts to have a fixed length.
     If the length of the text is more than the fixed length then we truncate the text.
     otherwise pad new strings to the text
@@ -11,12 +11,12 @@ class Resize(object):
         self.text_length = length
 
     def __call__(self, sample):
-        text, intent = sample['text'], sample['intent']
+        text = sample['text']
 
-        if len(text) >= self.text_length:  # if length of text more than 10
-            text = text[:self.text_length + 1]
+        if len(text) > self.text_length:  # if length of text more than 10
+            text = text[:self.text_length]
         else:
-            while len(text) < 10:  # if length of text less than 10.
+            while len(text) < self.text_length:  # if length of text less than 10.
                 text.append(_PAD_)
-
-        return {'text': text, 'intent': intent}
+        # sample['text'] = text
+        return {'text': text, 'intent': sample['intent']}
