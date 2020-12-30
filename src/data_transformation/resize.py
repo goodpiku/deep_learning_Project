@@ -11,12 +11,12 @@ class Resize:
         self.text_length = length
 
     def __call__(self, sample):
-        text = sample['text']
+        text = sample['processed_text']
 
         if len(text) > self.text_length:  # if length of text more than 10
             text = text[:self.text_length]
         else:
             while len(text) < self.text_length:  # if length of text less than 10.
                 text.append(_PAD_)
-        # sample['text'] = text
-        return {'text': text, 'intent': sample['intent']}
+        sample['processed_text'] = text
+        return sample

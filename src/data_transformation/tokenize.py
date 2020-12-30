@@ -15,9 +15,8 @@ class Tokenize_text(object):
         pass
 
     def __call__(self, sample):
-        text, intent = sample['text'], sample['intent']
-        # self.list_text = word_tokenize(text)
+        text = sample['text']
         list_text = tokenizer.tokenize(text)
         list_text = [word for word in list_text if len(word) > 1]
-        # sample['text'] = list_text
-        return {'text': list_text, 'intent': intent}
+        sample['processed_text'] = list_text
+        return sample

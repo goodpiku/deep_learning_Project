@@ -11,9 +11,10 @@ import torch
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
-        self.nlloss = nn.NLLLoss()
+        self.loss = nn.CrossEntropyLoss()
         self.device = torch.device(
             'cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.optimizer = None
 
     def load_model(self, path_to_saved_model: str) -> None:
         import sys
@@ -32,14 +33,16 @@ class Model(nn.Module):
 
     def run_epochs(self, training_data, validation_data, num_epochs):
         self.optimizer = torch.optim.Adam(self.parameters())
+        dict_of_result = {}
         for epoch in range(num_epochs):
-            print(f'starting epoch: {epoch}')
+            print('-' * 60)
+            print(f'Running epoch: {epoch + 1}')
             self.run_train(training_data)
             actual_labels, predicted_labels = self.run_validation(validation_data)
             dict_of_result = self.evaluation(actual_labels=actual_labels, predicted_labels=predicted_labels)
-            print(dict_of_result)
+            print(f"Macro F1: {dict_of_result['macro_f1']}")
             # set this in run
-            saved_model_path='../benchmark/parameters.pt'
+            saved_model_path = '../benchmark/results/parameters/parameters.pt'
             torch.save(self.state_dict(), saved_model_path)
         return dict_of_result
 
@@ -49,16 +52,17 @@ class Model(nn.Module):
         list_of_loss = []
         for batch in training_data:
             self.optimizer.zero_grad()
-            inputs, intent_labels = batch['text'], batch['intent_label']
+            inputs, intent_labels = batch['processed_text'], batch['intent_label']
             predicted_probabilities = self.__call__(batch)  # call the forward function
             # loss
             intent_labels = intent_labels.long().to(self.device)
-            loss = self.nlloss(predicted_probabilities, intent_labels)
+            loss = self.loss(predicted_probabilities, intent_labels)
             list_of_loss.append(loss.item())
             loss.backward()
             nn.utils.clip_grad_norm_(self.parameters(), 0.5)
             self.optimizer.step()
         mean_loss = np.mean(list_of_loss)
+        print(f'mean loss: {mean_loss}')
         return mean_loss
 
     def run_validation(self, validation_data):  # do this
@@ -69,15 +73,28 @@ class Model(nn.Module):
         # call the forward function
         with torch.no_grad():  # no backpropagation
             for batch in validation_data:
-                inputs, intent_labels = batch['text'], batch['intent_label']
+                inputs, intent_labels = batch['processed_text'], batch['intent_label']
                 predicted_probabilities = self.__call__(batch)
-                # list_of_labels_per_batch.append(intent_labels.tolist())
-                # print(list_of_labels_per_batch)
                 predicted_labels_per_batch = torch.argmax(predicted_probabilities,
                                                           dim=1)  # get predicted labels from predicted probabilities
                 list_of_predicted_labels.extend(predicted_labels_per_batch.tolist())
                 list_of_actual_labels.extend(intent_labels.tolist())
         return list_of_actual_labels, list_of_predicted_labels
+
+    def run_test(self, test_data):  # do this
+        print('test started')
+        self.eval()
+        list_of_text = []
+        list_of_predicted_labels = []
+        # call the forward function
+        with torch.no_grad():  # no backpropagation
+            for batch in test_data:
+                predicted_probabilities = self.__call__(batch)
+                predicted_labels_per_batch = torch.argmax(predicted_probabilities,
+                                                          dim=1)  # get predicted labels from predicted probabilities
+                list_of_predicted_labels.extend(predicted_labels_per_batch.tolist())
+                list_of_text.extend(batch['text'])
+        return list_of_text, list_of_predicted_labels
 
     def evaluation(self, actual_labels, predicted_labels):  # test this
         micro_precision = precision_score(actual_labels, predicted_labels, average='micro', zero_division='warn')
@@ -93,11 +110,12 @@ class Model(nn.Module):
         return dict_of_evaluation
 
     # def evaluation(self, actual_labels: List, predicted_labels: List, list_of_labels: List) -> Dict:
+    #     list_of_labels=
     #     dict_of_results = self.find_dict_of_result(actual_labels=actual_labels, predicted_labels=predicted_labels,
     #                                                list_of_labels=list_of_labels)
     #     macro_scores_dict = self.macro_scores(dict_of_results=dict_of_results)
     #     return macro_scores_dict
-
+    #
     # def find_dict_of_result(self, actual_labels: List, predicted_labels: List, list_of_labels: List) -> Dict:
     #     # return accuracy, precision, recall, f1_score
     #     dict_of_results = {'TP': [], 'FP': [], 'FN': [], 'TN': []}

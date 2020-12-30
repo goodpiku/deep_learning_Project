@@ -14,9 +14,9 @@ class Lemmatize_text(object):
 
     def __call__(self, sample):
         lemmatized_text = []
-        text = sample['text']
+        text = sample['processed_text']
         for token in text:
             token = token.lower()
             lemmatized_text.append(lemmatizer.lemmatize(token))
-        # sample['text'] = lemmatized_text
-        return {'text': sample['text'], 'intent': sample['intent']}
+        sample['processed_text'] = lemmatized_text
+        return sample

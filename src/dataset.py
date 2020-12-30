@@ -8,7 +8,7 @@ class Intent_identification_dataset(Dataset):
     return instances of the dataset.
     """
 
-    def __init__(self, data, transform):
+    def __init__(self, data, transform) -> object:
         self.dataset = data
         self.transform = transform
 
