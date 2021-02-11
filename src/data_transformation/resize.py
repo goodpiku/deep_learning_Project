@@ -15,6 +15,7 @@ class Resize:
 
         if len(text) > self.text_length:  # if length of text more than 10
             text = text[:self.text_length]
+
         else:
             while len(text) < self.text_length:  # if length of text less than 10.
                 text.append(_PAD_)

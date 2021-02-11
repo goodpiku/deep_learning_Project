@@ -6,12 +6,14 @@ from sklearn.metrics import precision_score
 from sklearn.metrics import recall_score
 from sklearn.metrics import f1_score
 import torch
+from itertools import chain
 
 
 class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
-        self.loss = nn.CrossEntropyLoss()
+        self.loss1 = nn.CrossEntropyLoss()
+        self.loss2 = nn.MSELoss()
         self.device = torch.device(
             'cuda:0' if torch.cuda.is_available() else 'cpu')
         self.optimizer = None
@@ -32,18 +34,27 @@ class Model(nn.Module):
             sys.exit(1)
 
     def run_epochs(self, training_data, validation_data, num_epochs):
+        old_score = 0
         self.optimizer = torch.optim.Adam(self.parameters())
         dict_of_result = {}
         for epoch in range(num_epochs):
             print('-' * 60)
             print(f'Running epoch: {epoch + 1}')
             self.run_train(training_data)
-            actual_labels, predicted_labels = self.run_validation(validation_data)
-            dict_of_result = self.evaluation(actual_labels=actual_labels, predicted_labels=predicted_labels)
-            print(f"Macro F1: {dict_of_result['macro_f1']}")
+            actual_intent_labels, predicted_intent_labels, actual_slot_labels, predicted_slot_labels = self.run_validation(
+                validation_data)
+            dict_of_intent_result = self.evaluation(actual_labels=actual_intent_labels,
+                                                    predicted_labels=predicted_intent_labels)
+            dict_of_slot_result = self.evaluation(actual_labels=list(chain.from_iterable(actual_slot_labels)),
+                                                  predicted_labels=list(chain.from_iterable(predicted_slot_labels)))
+            print(f"Macro F1 intent: {dict_of_intent_result['macro_f1']}, Slot:{dict_of_slot_result['macro_f1']}")
             # set this in run
-            saved_model_path = '../benchmark/results/parameters/parameters.pt'
-            torch.save(self.state_dict(), saved_model_path)
+            slot_macro_score = dict_of_slot_result['macro_f1']
+            saved_model_path = f'../benchmark/results/parameters/parameters_{slot_macro_score}.pt'
+            if slot_macro_score > old_score:
+                torch.save(self.state_dict(), saved_model_path)
+                old_score = slot_macro_score
+
         return dict_of_result
 
     def run_train(self, training_data):
@@ -52,49 +63,79 @@ class Model(nn.Module):
         list_of_loss = []
         for batch in training_data:
             self.optimizer.zero_grad()
-            inputs, intent_labels = batch['processed_text'], batch['intent_label']
-            predicted_probabilities = self.__call__(batch)  # call the forward function
+            inputs, intent_labels, slot_one_hot_labels = batch['processed_text'], batch['intent_label'], batch[
+                'slot_label']
+            predicted_probabilities_1, predicted_probabilities_2 = self.__call__(batch)  # call the forward function
+
             # loss
             intent_labels = intent_labels.long().to(self.device)
-            loss = self.loss(predicted_probabilities, intent_labels)
-            list_of_loss.append(loss.item())
-            loss.backward()
+            slot_one_hot_labels = slot_one_hot_labels.to(self.device)
+
+            loss1 = self.loss1(predicted_probabilities_1, intent_labels)
+            loss2 = self.loss2(predicted_probabilities_2, slot_one_hot_labels)
+            # loss = sum(loss1, loss2)
+            loss1.backward(retain_graph=True)
+            loss2.backward(retain_graph=True)
             nn.utils.clip_grad_norm_(self.parameters(), 0.5)
             self.optimizer.step()
-        mean_loss = np.mean(list_of_loss)
+        # mean_loss = np.mean(list_of_loss)
+        mean_loss = .0
         print(f'mean loss: {mean_loss}')
         return mean_loss
 
     def run_validation(self, validation_data):  # do this
         print('validation started')
         self.eval()
-        list_of_actual_labels = []
-        list_of_predicted_labels = []
+        list_of_actual_intent_labels = []
+        list_of_predicted_intent_labels = []
+        list_of_actual_slot_labels = []
+        list_of_predicted_slot_labels = []
         # call the forward function
         with torch.no_grad():  # no backpropagation
             for batch in validation_data:
-                inputs, intent_labels = batch['processed_text'], batch['intent_label']
-                predicted_probabilities = self.__call__(batch)
-                predicted_labels_per_batch = torch.argmax(predicted_probabilities,
-                                                          dim=1)  # get predicted labels from predicted probabilities
-                list_of_predicted_labels.extend(predicted_labels_per_batch.tolist())
-                list_of_actual_labels.extend(intent_labels.tolist())
-        return list_of_actual_labels, list_of_predicted_labels
+                inputs, intent_labels, slot_one_hot_labels = batch['processed_text'], batch['intent_label'], batch[
+                    'slot_label']
+                predicted_probabilities_1, predicted_probabilities_2 = self.__call__(batch)
+
+                # intent
+                predicted_labels_intent_per_batch = torch.argmax(predicted_probabilities_1,
+                                                                 dim=1)  # get predicted labels from predicted probabilities
+                list_of_predicted_intent_labels.extend(predicted_labels_intent_per_batch.tolist())
+                list_of_actual_intent_labels.extend(intent_labels.tolist())
+
+                # slots
+                predicted_slot_labels_per_batch = torch.argmax(predicted_probabilities_2,
+                                                               dim=2)
+                list_of_predicted_slot_labels.extend(predicted_slot_labels_per_batch.tolist())
+                slot_labels = torch.argmax(slot_one_hot_labels, dim=2)
+                list_of_actual_slot_labels.extend(slot_labels.tolist())
+                """
+                TODO: list_of_predicted_slot_labels
+                """
+        return list_of_actual_intent_labels, list_of_predicted_intent_labels, list_of_actual_slot_labels, list_of_predicted_slot_labels
 
     def run_test(self, test_data):  # do this
         print('test started')
         self.eval()
         list_of_text = []
-        list_of_predicted_labels = []
+        list_of_predicted_intent_labels = []
+        list_of_predicted_slot_labels = []
         # call the forward function
         with torch.no_grad():  # no backpropagation
             for batch in test_data:
-                predicted_probabilities = self.__call__(batch)
-                predicted_labels_per_batch = torch.argmax(predicted_probabilities,
+                predicted_probabilities_1, predicted_probabilities_2 = self.__call__(batch)
+                # intent
+                predicted_labels_per_batch = torch.argmax(predicted_probabilities_1,
                                                           dim=1)  # get predicted labels from predicted probabilities
-                list_of_predicted_labels.extend(predicted_labels_per_batch.tolist())
+                list_of_predicted_intent_labels.extend(predicted_labels_per_batch.tolist())
+
+                # slots
+                predicted_slot_labels_per_batch = torch.argmax(predicted_probabilities_2,
+                                                               dim=2)
+                list_of_predicted_slot_labels.extend(predicted_slot_labels_per_batch.tolist())
+
                 list_of_text.extend(batch['text'])
-        return list_of_text, list_of_predicted_labels
+        return list_of_text, list_of_predicted_intent_labels, list_of_predicted_slot_labels
 
     def evaluation(self, actual_labels, predicted_labels):  # test this
         micro_precision = precision_score(actual_labels, predicted_labels, average='micro', zero_division='warn')

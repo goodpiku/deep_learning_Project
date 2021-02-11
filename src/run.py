@@ -6,6 +6,7 @@ from data_transformation.lematization import Lemmatize_text
 from data_transformation.glove_embedding import loadGloveModel
 from data_transformation.embedding import Embedding
 from data_transformation.label_transformation import Label
+from data_transformation.slot_transformation import Slot
 from data_transformation.stop_word import Stopword
 from data_transformation.remove_punctuations import RemovePunctuation
 from torchvision import transforms
@@ -23,9 +24,9 @@ device = torch.device(
     'cuda:0' if torch.cuda.is_available() else 'cpu')
 model_name = 'RNN'
 torch.manual_seed(20)
-batch_size = 64
+batch_size = 5
 num_epochs = 25
-num_of_words = 30
+num_of_words = 45
 
 training = False
 if training:
@@ -42,10 +43,15 @@ embedding_model = loadGloveModel(embedding_file_path)
 
 with open('../benchmark/labels.json', 'r') as j_file:
     intent_to_index = json.load(j_file)
+with open('../benchmark/slot_labels.json', 'r') as s_file:
+    slot_to_index = json.load(s_file)
+
 if model_name == 'RNN':
-    model = IntentclassifierRNN(embedding_size=embedding_size, num_of_labels=len(intent_to_index))
+    model = IntentclassifierRNN(embedding_size=embedding_size, num_of_labels=len(intent_to_index),
+                                num_of_slots=len(slot_to_index))
 elif model_name == 'CNN':
-    model = IntentclassifierCNN(embedding_size=embedding_size, num_of_labels=len(intent_to_index))
+    model = IntentclassifierCNN(embedding_size=embedding_size, num_of_labels=len(intent_to_index),
+                                num_of_slots=len(slot_to_index))
 else:
     pass
 model.to(
@@ -57,13 +63,13 @@ token = Tokenize_text()
 no_punctions = RemovePunctuation()
 lemma = Lemmatize_text()
 resize = Resize(num_of_words)
+slot_index = Slot(slot_to_index)
 embedding = Embedding(embedding=embedding_model, embedding_dim=embedding_size)
 label_index = Label(intent_to_index)
-list_of_transforms = [token, lemma, no_punctions, resize, embedding]
 
 if training:
+    list_of_transforms = [token, resize, label_index, slot_index, embedding]
     """ Split data into training and validation"""
-    list_of_transforms.append(label_index)
     compose = transforms.Compose(list_of_transforms)
     dataset = Intent_identification_dataset(data, compose)
     len_of_dataset = len(dataset)
@@ -84,23 +90,54 @@ if training:
 if training == False:
     """
     """
+    list_of_transforms = [token, resize, embedding]
     data = process_data('../benchmark/dev.json', training=False)
     compose = transforms.Compose(list_of_transforms)
     dataset = Intent_identification_dataset(data, compose)
     test_dataset_with_batches = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
-    model.load_model(path_to_saved_model='../benchmark/results/parameters/parameters.pt')
-    test_text, predictions = model.run_test(test_data=test_dataset_with_batches)
+    model.load_model(path_to_saved_model='../benchmark/results/parameters/parameters_0.4955923172855647.pt')
+    test_text, predictions_1, predictions_2 = model.run_test(test_data=test_dataset_with_batches)
     label_to_intent = {}
     for key, value in intent_to_index.items():
         label_to_intent[value] = key
-
+    label_to_slot = {}
+    for key, val in slot_to_index.items():
+        label_to_slot[val] = key
     predictions_with_labels = {}
     predictions_for_upload = {}
-    for pos, label in enumerate(predictions):
+    for pos, label in enumerate(predictions_1):
         predictions_with_labels[pos] = {'text': test_text[pos], 'intent': label_to_intent[label]}
         predictions_for_upload[pos] = {'intent': label_to_intent[label]}
 
+    """
+    Todo:
+    label_to_slot ={0: 'b-city', 1: 'b-sort', 2: 'b-service', 3: 'i-rating_value', 4: 'i-restaurant_type', 5: 'i-condition_description', ...........
+                    73: 'i-sort', 74: 'b-music_item', 75: 'b-spatial_relation', 76: 'b-current_location', 77: 'b-genre', 78: 'o', 79: '[PAD]'}
+                    
+    predictions_2 = [[78, 78, 78, 78, 78, 78, 78, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79], 
+    [78, 78, 78, 78, 78, 78, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79],
+     [78, 78, 78, 78, 78, 78, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79, 79], ...............
+    """
+    predictions_with_slots = {}
+    for ind, sentence in enumerate(predictions_2):
+        text = test_text[ind].split(' ')
+        # predictions_with_slots = {'text': test_text[ind], 'slot': {}}
+        each_prediction = {}
+        slot = {}
+        for pos, slot_key in enumerate(sentence[:len(text)]):
+            if (label_to_slot[slot_key].find('b-') != -1):
+                slot[label_to_slot[slot_key][2:]] = text[pos]
+            elif (label_to_slot[slot_key].find('i-') != -1):
+                if label_to_slot[slot_key][2:] not in slot:
+                    slot[label_to_slot[slot_key][2:]] = text[pos]
+                else:
+                    slot[label_to_slot[slot_key][2:]] = f'{slot[label_to_slot[slot_key][2:]]} {text[pos]}'
+        intent_label = predictions_1[ind]
+        predictions_with_slots[ind] = {'text': test_text[ind], 'intent': label_to_intent[intent_label], 'slots': slot}
+    # print(predictions_with_slots)
+
     with open('../benchmark/dev_output.json', 'w') as out_file:
-        json.dump(predictions_with_labels, out_file)
+        json.dump(predictions_with_slots, out_file)
     with open('../benchmark/dev_upload.json', 'w') as out_file:
         json.dump(predictions_for_upload, out_file)
+
